@@ -4,6 +4,19 @@ from datetime import datetime
 import threading
 
 # user interface
+def query_parser(query):
+    query_list = query.split()
+    print(query_list)
+    queries = []
+    for query in query_list:
+        command = query.split(':')
+        if len(command) == 2:
+            if command[0] == 'path':
+                queries.append(command)
+            elif command[0] == 'content':
+                queries.append(command)
+    print(queries)
+
 class SearchUI:
     def __init__(self, root, crawler, db):
         self.root, self.crawler, self.db = root, crawler, db
@@ -24,7 +37,7 @@ class SearchUI:
                         command=self.perform_search).pack(side=tk.LEFT)
         ttk.Radiobutton(ctrl_frame, text="Search Name/Path", variable=self.search_mode, value="name",
                         command=self.perform_search).pack(side=tk.LEFT, padx=15)
-
+        #when button is clicked it performs Search
         self.filter_btn = ttk.Menubutton(ctrl_frame, text="Filter Extensions")
         self.filter_btn.pack(side=tk.RIGHT)
         self.filter_menu = tk.Menu(self.filter_btn, tearoff=False)
@@ -86,8 +99,12 @@ class SearchUI:
             if ext not in self.filter_vars: self.filter_vars[ext] = tk.BooleanVar(value=False)
             self.filter_menu.add_checkbutton(label=ext, variable=self.filter_vars[ext], command=self.perform_search)
 
+
     def perform_search(self):
         query = self.query_var.get()
+        #add a query parser function here
+        query_parser(query)
+
         allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
 
         for item in self.tree.get_children(): self.tree.delete(item)
