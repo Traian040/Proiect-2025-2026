@@ -2,20 +2,19 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 from datetime import datetime
 import threading
+import re
 
-# user interface
+
 def query_parser(query):
     query_list = query.split()
-    print(query_list)
-    queries = []
-    for query in query_list:
-        command = query.split(':')
-        if len(command) == 2:
-            if command[0] == 'path':
-                queries.append(command)
-            elif command[0] == 'content':
-                queries.append(command)
-    print(queries)
+    queries = {}
+    for item in query_list:
+        if ':' in item:
+            command = item.split(':', 1)
+            if command[0] in ['path', 'content']:
+                queries[command[0]] = command[1]
+    return queries
+
 
 class SearchUI:
     def __init__(self, root, crawler, db):
@@ -28,45 +27,52 @@ class SearchUI:
         main_container = ttk.Frame(root, padding="15")
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # controles
+        # controls
         ctrl_frame = ttk.Frame(main_container)
         ctrl_frame.pack(fill=tk.X, pady=(0, 10))
 
-        self.search_mode = tk.StringVar(value="content")
-        ttk.Radiobutton(ctrl_frame, text="Search Content", variable=self.search_mode, value="content",
-                        command=self.perform_search).pack(side=tk.LEFT)
-        ttk.Radiobutton(ctrl_frame, text="Search Name/Path", variable=self.search_mode, value="name",
-                        command=self.perform_search).pack(side=tk.LEFT, padx=15)
-        #when button is clicked it performs Search
+
+
         self.filter_btn = ttk.Menubutton(ctrl_frame, text="Filter Extensions")
         self.filter_btn.pack(side=tk.RIGHT)
         self.filter_menu = tk.Menu(self.filter_btn, tearoff=False)
         self.filter_btn.config(menu=self.filter_menu)
 
         # search bar
-        search_frame = ttk.Frame(main_container)
-        search_frame.pack(fill=tk.X, pady=5)
+
         self.query_var = tk.StringVar()
         self.query_var.trace_add("write", lambda *args: self.perform_search())
-        self.search_entry = ttk.Entry(search_frame, textvariable=self.query_var, font=('Segoe UI', 11))
+        self.search_entry = ttk.Entry(ctrl_frame, textvariable=self.query_var, font=('Segoe UI', 11))
         self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.search_entry.focus_set()
 
-        self.index_btn = ttk.Button(search_frame, text="Index Folder", command=self.run_crawler)
-        self.index_btn.pack(side=tk.RIGHT)
+        self.index_btn = ttk.Button(ctrl_frame, text="Index Folder", command=self.run_crawler)
+        self.index_btn.pack(side=tk.RIGHT, padx=(5, 0))
 
-        # table display
+
+        #scroll bar
+        table_container = ttk.Frame(main_container)
+        table_container.pack(fill=tk.BOTH, expand=True)
+
         cols = ("File", "Size", "Date Modified", "Path")
-        self.tree = ttk.Treeview(main_container, columns=cols, show='headings')
+        self.tree = ttk.Treeview(table_container, columns=cols, show='headings')
+
+        #scrollbar
+        table_scroll = ttk.Scrollbar(table_container, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=table_scroll.set)
+
         for col in cols: self.tree.heading(col, text=col)
         self.tree.column("File", width=200)
         self.tree.column("Size", width=80, anchor=tk.E)
         self.tree.column("Date Modified", width=150)
         self.tree.column("Path", width=400)
-        self.tree.pack(fill=tk.BOTH, expand=True)
+
+        table_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         self.tree.bind("<<TreeviewSelect>>", self.show_content)
 
-        # reading
+        # read view
         view_frame = ttk.LabelFrame(main_container, text="Full File Content", padding="10")
         view_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
@@ -99,17 +105,30 @@ class SearchUI:
             if ext not in self.filter_vars: self.filter_vars[ext] = tk.BooleanVar(value=False)
             self.filter_menu.add_checkbutton(label=ext, variable=self.filter_vars[ext], command=self.perform_search)
 
-
     def perform_search(self):
-        query = self.query_var.get()
-        #add a query parser function here
-        query_parser(query)
+        raw_query = self.query_var.get()
+        if not raw_query:
+            for item in self.tree.get_children(): self.tree.delete(item)
+            self.status_var.set("Ready")
+            return
+
+        #tag parsing
+        parsed_criteria = query_parser(raw_query)
+
+        #if no tags, use default content search
+        if not parsed_criteria:
+            parsed_criteria = {'content': raw_query}
 
         allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
 
-        for item in self.tree.get_children(): self.tree.delete(item)
-        self.results_data = self.db.search(query, mode=self.search_mode.get(), allowed_exts=allowed)
+        #clear the table every time a new search is performed
+        for item in self.tree.get_children():
+            self.tree.delete(item)
 
+        #perform search using parsed criteria
+        self.results_data = self.db.search(criteria=parsed_criteria, allowed_exts=allowed)
+
+        #insert results into table
         for i, (name, path, mtime, size, content) in enumerate(self.results_data):
             date_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
             size_str = self.format_size(size)

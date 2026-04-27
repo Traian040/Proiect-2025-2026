@@ -62,38 +62,47 @@ class DatabaseHandler:
         row_id = cursor.lastrowid
         cursor.execute("INSERT INTO documents_fts(rowid, content) VALUES(?, ?)", (row_id, data['content']))
 
-    def search(self, query_text, mode="content", allowed_exts=None, limit=100):
+    def search(self, criteria, allowed_exts=None, limit=100):
         cursor = self.conn.cursor()
-        ext_filter = ""
+        where_clauses = []
         params = []
+        join_fts = False
+
+        if 'content' in criteria and criteria['content']:
+            words = re.sub(r'[^\w\s]', '', criteria['content']).split()
+            fts_query = " AND ".join([f"{w}*" for w in words])
+            if fts_query:
+                where_clauses.append("documents_fts MATCH ?")
+                params.append(fts_query)
+                join_fts = True
+
+        if 'path' in criteria and criteria['path']:
+            where_clauses.append("d.file_path LIKE ?")
+            params.append(f"%{criteria['path']}%")
+
         if allowed_exts:
             placeholders = ",".join(["?"] * len(allowed_exts))
-            ext_filter = f"AND d.extension IN ({placeholders})"
+            where_clauses.append(f"d.extension IN ({placeholders})")
             params.extend(allowed_exts)
 
-        if mode == "content":
-            words = re.sub(r'[^\w\s]', '', query_text).split()
-            fts_query = " AND ".join([f"{w}*" for w in words]) if words else ""
-            if not fts_query: return []
-            sql = f'''
-                SELECT d.file_name, d.file_path, d.last_modified, d.file_size, d.content
-                FROM documents d
-                JOIN documents_fts f ON d.id = f.rowid
-                WHERE documents_fts MATCH ? {ext_filter}
-                ORDER BY rank LIMIT ?
-            '''
-            execute_params = [fts_query] + params + [limit]
-        else:
-            sql = f'''
-                SELECT file_name, file_path, last_modified, file_size, content
-                FROM documents d
-                WHERE file_path LIKE ? {ext_filter}
-                ORDER BY last_modified DESC LIMIT ?
-            '''
-            execute_params = [f"%{query_text}%"] + params + [limit]
+        sql = "SELECT d.file_name, d.file_path, d.last_modified, d.file_size, d.content FROM documents d"
 
+        if join_fts:
+            sql += " JOIN documents_fts f ON d.id = f.rowid"
+
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        if join_fts:
+            sql += " ORDER BY rank"
+        else:
+            sql += " ORDER BY d.last_modified DESC"
+
+        sql += " LIMIT ?"
+        params.append(limit)
         try:
-            cursor.execute(sql, execute_params)
+            cursor.execute(sql, params)
             return cursor.fetchall()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            print(f"Database Error: {e}")
             return []
