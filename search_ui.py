@@ -21,7 +21,7 @@ class SearchUI:
         self.root, self.crawler, self.db = root, crawler, db
         self.root.title("FlashSearch Pro v1.5")
         self.root.geometry("1200x850")
-
+        self.page = 0
         self.filter_vars = {}
 
         main_container = ttk.Frame(root, padding="15")
@@ -32,13 +32,46 @@ class SearchUI:
         ctrl_frame.pack(fill=tk.X, pady=(0, 10))
 
 
+        self.sort_mode = tk.StringVar(value="name")#re-added the buttons for sorting purposes
+        ttk.Radiobutton(ctrl_frame, text="Sort alphabetically", variable=self.sort_mode, value="alphabetically",
+                        command=self.perform_search).pack(side=tk.LEFT)
+        ttk.Radiobutton(ctrl_frame, text="Sort by date accessed", variable=self.sort_mode, value="date",
+                        command=self.perform_search).pack(side=tk.LEFT, padx=15)
 
+
+        #reduce number of results displayed at a time
+        self.limit_var = tk.StringVar(value="25")  # Default limit
+        ttk.Label(ctrl_frame, text="Show:").pack(side=tk.LEFT, padx=(10, 2))
+        self.limit_combo = ttk.Combobox(
+            ctrl_frame,
+            textvariable=self.limit_var,
+            values=("10", "25", "50", "100", "All"),
+            width=5,
+            state="readonly"
+        )
+        self.limit_combo.pack(side=tk.LEFT)
+        self.limit_combo.bind("<<ComboboxSelected>>", lambda e: self.perform_search())
+
+        #extension filter
         self.filter_btn = ttk.Menubutton(ctrl_frame, text="Filter Extensions")
         self.filter_btn.pack(side=tk.RIGHT)
         self.filter_menu = tk.Menu(self.filter_btn, tearoff=False)
         self.filter_btn.config(menu=self.filter_menu)
 
         # search bar
+        #navigation buttons for the table, takes a lot of time to go display the results
+        nav_frame = ttk.Frame(main_container)
+        nav_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.prev_btn = ttk.Button(nav_frame, text="<-", width=5, command=lambda: self.change_page(-1))
+        self.prev_btn.pack(side=tk.LEFT)
+
+        self.page_label = ttk.Label(nav_frame, text="0-0 of 0", font=('Segoe UI', 9, 'bold'))
+        self.page_label.pack(side=tk.LEFT, padx=20)
+
+        self.next_btn = ttk.Button(nav_frame, text="->", width=5, command=lambda: self.change_page(1))
+        self.next_btn.pack(side=tk.LEFT)
+        #very useful, can be used to navigate through the results much easier
 
         self.query_var = tk.StringVar()
         self.query_var.trace_add("write", lambda *args: self.perform_search())
@@ -104,36 +137,77 @@ class SearchUI:
         for ext in self.db.get_all_extensions():
             if ext not in self.filter_vars: self.filter_vars[ext] = tk.BooleanVar(value=False)
             self.filter_menu.add_checkbutton(label=ext, variable=self.filter_vars[ext], command=self.perform_search)
-
-    def perform_search(self):
-        raw_query = self.query_var.get()
-        if not raw_query:
-            for item in self.tree.get_children(): self.tree.delete(item)
-            self.status_var.set("Ready")
+    #function replaces some functionalities of the previously used perform_search function
+    def change_page(self, delta):
+        limit_str = self.limit_var.get()
+        if limit_str == "All":
             return
 
-        #tag parsing
-        parsed_criteria = query_parser(raw_query)
+        limit = int(limit_str)
+        new_page = self.page + delta
 
-        #if no tags, use default content search
-        if not parsed_criteria:
-            parsed_criteria = {'content': raw_query}
+        # Calculate max possible page
+        total_results = len(self.results_data)
+        max_page = (total_results - 1) // limit if total_results > 0 else 0
 
-        allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
+        if 0 <= new_page <= max_page:
+            self.page = new_page
+            self.update_table_display()
 
-        #clear the table every time a new search is performed
+    def update_table_display(self):
+        #delete all the items in the table
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        #perform search using parsed criteria
-        self.results_data = self.db.search(criteria=parsed_criteria, allowed_exts=allowed)
+        total = len(self.results_data)
+        limit_str = self.limit_var.get()
 
-        #insert results into table
-        for i, (name, path, mtime, size, content) in enumerate(self.results_data):
+        if limit_str == "All":
+            display_list = self.results_data
+            start_idx = 0
+            end_idx = total
+        else:
+            limit = int(limit_str)
+            start_idx = self.page * limit
+            end_idx = min(start_idx + limit, total)
+            display_list = self.results_data[start_idx:end_idx]
+
+        #insert the new items into the table
+        for i, (name, path, mtime, size, content) in enumerate(display_list):
             date_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
             size_str = self.format_size(size)
-            self.tree.insert("", tk.END, iid=i, values=(name, size_str, date_str, path))
+            actual_idx = start_idx + i
+            self.tree.insert("", tk.END, iid=actual_idx, values=(name, size_str, date_str, path))
 
+        #update labels and buttons
+        range_text = f"{start_idx + 1}-{end_idx} of {total}" if total > 0 else "0-0 of 0"
+        self.page_label.config(text=range_text)
+
+        #disable prev/next buttons if we're at the beginning/end of the list
+        self.prev_btn.config(state=tk.NORMAL if self.page > 0 else tk.DISABLED)
+        if limit_str == "All":
+            self.next_btn.config(state=tk.DISABLED)
+        else:
+            self.next_btn.config(state=tk.NORMAL if end_idx < total else tk.DISABLED)
+
+    def perform_search(self):
+        self.page = 0 #whenever we search reset the page to 0
+        raw_query = self.query_var.get()
+
+        if not raw_query:
+            for item in self.tree.get_children(): self.tree.delete(item)
+            self.status_var.set("Ready")
+            self.page_label.config(text="0-0 of 0")
+            return
+        #if no valid search functions were found default to search by path
+        parsed_criteria = query_parser(raw_query) or {'path': raw_query}
+        allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
+
+        #fetch from db once
+        self.results_data = self.db.search(criteria=parsed_criteria, allowed_exts=allowed, sort_type=self.sort_mode.get())
+
+        #use the new display function to update the table
+        self.update_table_display()
         self.status_var.set(f"Found {len(self.results_data)} matches")
 
     def run_crawler(self):
