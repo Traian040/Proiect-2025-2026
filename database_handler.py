@@ -62,7 +62,7 @@ class DatabaseHandler:
         row_id = cursor.lastrowid
         cursor.execute("INSERT INTO documents_fts(rowid, content) VALUES(?, ?)", (row_id, data['content']))
 
-    def search(self, criteria, allowed_exts=None, limit=100):
+    def search(self, criteria, allowed_exts=None, sort_type = "alphabetically"):
         cursor = self.conn.cursor()
         where_clauses = []
         params = []
@@ -93,13 +93,12 @@ class DatabaseHandler:
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
-        if join_fts:
-            sql += " ORDER BY rank"
-        else:
+        if sort_type == "alphabetically":
+            sql += " ORDER BY LOWER(file_name) ASC"
+        if sort_type == "date":
             sql += " ORDER BY d.last_modified DESC"
 
-        sql += " LIMIT ?"
-        params.append(limit)
+
         try:
             cursor.execute(sql, params)
             return cursor.fetchall()
