@@ -62,46 +62,58 @@ class DatabaseHandler:
         row_id = cursor.lastrowid
         cursor.execute("INSERT INTO documents_fts(rowid, content) VALUES(?, ?)", (row_id, data['content']))
 
-    def search(self, criteria, allowed_exts=None, sort_type = "alphabetically"):
+    def search(self, criteria, allowed_exts=None, sort_type="alphabetically"):
         cursor = self.conn.cursor()
         where_clauses = []
         params = []
         join_fts = False
 
-        if 'content' in criteria and criteria['content']:
-            words = re.sub(r'[^\w\s]', '', criteria['content']).split()
-            fts_query = " AND ".join([f"{w}*" for w in words])
-            if fts_query:
-                where_clauses.append("documents_fts MATCH ?")
-                params.append(fts_query)
-                join_fts = True
+        # criteria is now a list of dictionaries: [{"path": "val"}, {"content": "val"}, {"path": "word1 word2"}]
+        # to allow for multiple criteria
+        for criterion in criteria:
+            for key, value in criterion.items():
+                if not value:
+                    continue
 
-        if 'path' in criteria and criteria['path']:
-            where_clauses.append("d.file_path LIKE ?")
-            params.append(f"%{criteria['path']}%")
+                if key == 'content':
+                    #clean and format
+                    words = re.sub(r'[^\w\s]', '', value).split()
+                    fts_query = " AND ".join([f"{w}*" for w in words])
+                    if fts_query:
+                        #multiple matches
+                        where_clauses.append("documents_fts MATCH ?")
+                        params.append(fts_query)
+                        join_fts = True
 
+                elif key == 'path':
+                    where_clauses.append("d.file_path LIKE ?")
+                    params.append(f"%{value}%")
+
+        #filter extension
         if allowed_exts:
             placeholders = ",".join(["?"] * len(allowed_exts))
             where_clauses.append(f"d.extension IN ({placeholders})")
             params.extend(allowed_exts)
 
+        #base version of the sql query with no values or filtering
         sql = "SELECT d.file_name, d.file_path, d.last_modified, d.file_size, d.content FROM documents d"
 
+        #fts join
         if join_fts:
             sql += " JOIN documents_fts f ON d.id = f.rowid"
 
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
+        #sorting logic at the end
         if sort_type == "alphabetically":
-            sql += " ORDER BY LOWER(file_name) ASC"
-        if sort_type == "date":
+            sql += " ORDER BY LOWER(d.file_name) ASC"
+        elif sort_type == "date":
             sql += " ORDER BY d.last_modified DESC"
-
 
         try:
             cursor.execute(sql, params)
             return cursor.fetchall()
-        except sqlite3.OperationalError as e:
+        except Exception as e:
             print(f"Database Error: {e}")
             return []

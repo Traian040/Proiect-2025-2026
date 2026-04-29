@@ -6,13 +6,16 @@ import re
 
 
 def query_parser(query):
-    query_list = query.split()
-    queries = {}
-    for item in query_list:
-        if ':' in item:
-            command = item.split(':', 1)
-            if command[0] in ['path', 'content']:
-                queries[command[0]] = command[1]
+    pattern = r'(path|content):(?:"([^"]*)"|([^\s]+))'
+
+    matches = re.findall(pattern, query)#each match in the query is saved and checking
+    queries = []
+
+    for key, quoted_val, unquoted_val in matches:
+        #if value in quotes, use it, else use the unquoted value
+        value = quoted_val if quoted_val else unquoted_val
+        queries.append({key: value})
+
     return queries
 
 
@@ -200,7 +203,7 @@ class SearchUI:
             self.page_label.config(text="0-0 of 0")
             return
         #if no valid search functions were found default to search by path
-        parsed_criteria = query_parser(raw_query) or {'path': raw_query}
+        parsed_criteria = query_parser(raw_query) or [{'path': raw_query}]
         allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
 
         #fetch from db once
