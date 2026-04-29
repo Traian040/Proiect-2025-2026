@@ -3,7 +3,7 @@ from tkinter import ttk, filedialog
 from datetime import datetime
 import threading
 import re
-
+import time
 
 def query_parser(query):
     pattern = r'(path|content):(?:"([^"]*)"|([^\s]+))'
@@ -30,7 +30,7 @@ class SearchUI:
         main_container = ttk.Frame(root, padding="15")
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # controls
+        #controls
         ctrl_frame = ttk.Frame(main_container)
         ctrl_frame.pack(fill=tk.X, pady=(0, 10))
 
@@ -43,7 +43,8 @@ class SearchUI:
 
 
         #reduce number of results displayed at a time
-        self.limit_var = tk.StringVar(value="25")  # Default limit
+        #default limit is 25, can be changed to 10, 25, 50, 100, or all
+        self.limit_var = tk.StringVar(value="25")
         ttk.Label(ctrl_frame, text="Show:").pack(side=tk.LEFT, padx=(10, 2))
         self.limit_combo = ttk.Combobox(
             ctrl_frame,
@@ -61,7 +62,7 @@ class SearchUI:
         self.filter_menu = tk.Menu(self.filter_btn, tearoff=False)
         self.filter_btn.config(menu=self.filter_menu)
 
-        # search bar
+        #search bar
         #navigation buttons for the table, takes a lot of time to go display the results
         nav_frame = ttk.Frame(main_container)
         nav_frame.pack(fill=tk.X, pady=(0, 5))
@@ -108,7 +109,7 @@ class SearchUI:
 
         self.tree.bind("<<TreeviewSelect>>", self.show_content)
 
-        # read view
+        #read view
         view_frame = ttk.LabelFrame(main_container, text="Full File Content", padding="10")
         view_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
@@ -120,7 +121,7 @@ class SearchUI:
         self.content_text.pack(fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.content_text.yview)
 
-        # status bar
+        #status bar
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W).pack(side=tk.BOTTOM, fill=tk.X)
 
@@ -149,7 +150,7 @@ class SearchUI:
         limit = int(limit_str)
         new_page = self.page + delta
 
-        # Calculate max possible page
+        #calculate the maximum page based on the current limit and the total number of results
         total_results = len(self.results_data)
         max_page = (total_results - 1) // limit if total_results > 0 else 0
 
@@ -194,24 +195,41 @@ class SearchUI:
             self.next_btn.config(state=tk.NORMAL if end_idx < total else tk.DISABLED)
 
     def perform_search(self):
-        self.page = 0 #whenever we search reset the page to 0
+        start_total = time.perf_counter()#start global timer
+
+        self.page = 0
         raw_query = self.query_var.get()
 
         if not raw_query:
             for item in self.tree.get_children(): self.tree.delete(item)
             self.status_var.set("Ready")
-            self.page_label.config(text="0-0 of 0")
             return
-        #if no valid search functions were found default to search by path
+
         parsed_criteria = query_parser(raw_query) or [{'path': raw_query}]
         allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
 
-        #fetch from db once
-        self.results_data = self.db.search(criteria=parsed_criteria, allowed_exts=allowed, sort_type=self.sort_mode.get())
+        #measure latency of the search
+        db_start = time.perf_counter()
+        self.results_data = self.db.search(
+            criteria=parsed_criteria,
+            allowed_exts=allowed,
+            sort_type=self.sort_mode.get()
+        )
+        db_end = time.perf_counter()
+        db_latency = (db_end - db_start) * 1000#convert to ms
 
-        #use the new display function to update the table
+        #measure ui latency
+        ui_start = time.perf_counter()
         self.update_table_display()
-        self.status_var.set(f"Found {len(self.results_data)} matches")
+        ui_end = time.perf_counter()
+        ui_latency = (ui_end - ui_start) * 1000
+        #
+
+        total_latency = (time.perf_counter() - start_total) * 1000
+
+        #keep info from status bar from previous version with some information added
+        perf_stats = f"Found {len(self.results_data)} matches | DB: {db_latency:.2f}ms | UI: {ui_latency:.2f}ms | Total: {total_latency:.2f}ms"
+        self.status_var.set(perf_stats)
 
     def run_crawler(self):
         directory = filedialog.askdirectory()
@@ -238,11 +256,45 @@ class SearchUI:
     def show_content(self, event):
         selected = self.tree.selection()
         if not selected: return
-        idx = int(selected[0])
 
-        full_content = self.results_data[idx][4]
+        #get the iid of the selected item
+        idx = int(selected[0])
+        full_content = self.results_data[idx][4]  #get the content
+
+        #get the search query
+        raw_query = self.query_var.get()
+        #the user will not get pointed to anything unless the search for content
+        clean_query = re.sub(r'(path|content):', '', raw_query).strip().strip('"')
 
         self.content_text.config(state=tk.NORMAL)
         self.content_text.delete(1.0, tk.END)
         self.content_text.insert(tk.END, full_content)
+
+        #define how the search will be highlightedq
+        self.content_text.tag_configure("match", background="#ffeb3b", foreground="black")
+
+        if clean_query and len(clean_query) > 1:
+            start_pos = "1.0"
+            first_match_index = None
+
+            while True:
+                #use built-in search function to find the next match
+                start_pos = self.content_text.search(clean_query, start_pos, stopindex=tk.END, nocase=True)
+                if not start_pos: break
+
+                #calculate the end position of the match by adding the length of the query
+                end_pos = f"{start_pos}+{len(clean_query)}c"
+
+                #apply tag to the match
+                self.content_text.tag_add("match", start_pos, end_pos)
+
+                if first_match_index is None:
+                    first_match_index = start_pos
+                #go forward with the pointer
+                start_pos = end_pos
+
+            #autoscroll to the first match if it exists
+            if first_match_index:
+                self.content_text.see(first_match_index)
+
         self.content_text.config(state=tk.DISABLED)

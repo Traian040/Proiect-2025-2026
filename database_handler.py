@@ -17,7 +17,7 @@ class DatabaseHandler:
             cursor.execute('DROP TABLE IF EXISTS documents')
             cursor.execute('DROP TABLE IF EXISTS documents_fts')
 
-        # updated table structure. added extension column and file_size column
+        #updated table structure. added extension column and file_size column
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS documents
                        (
@@ -68,8 +68,8 @@ class DatabaseHandler:
         params = []
         join_fts = False
 
-        # criteria is now a list of dictionaries: [{"path": "val"}, {"content": "val"}, {"path": "word1 word2"}]
-        # to allow for multiple criteria
+        #criteria is now a list of dictionaries: [{"path": "val"}, {"content": "val"}, {"path": "word1 word2"}]
+        #to allow for multiple criteria
         for criterion in criteria:
             for key, value in criterion.items():
                 if not value:
