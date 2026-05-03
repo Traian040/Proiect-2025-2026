@@ -17,7 +17,7 @@ class DatabaseHandler:
             cursor.execute('DROP TABLE IF EXISTS documents')
             cursor.execute('DROP TABLE IF EXISTS documents_fts')
 
-        #updated table structure. added extension column and file_size column
+        #database initialization sql code
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS documents
                        (
@@ -29,7 +29,8 @@ class DatabaseHandler:
                            meta_json TEXT,
                            last_modified REAL,
                            extension TEXT,
-                           file_size INTEGER
+                           file_size INTEGER,
+                           path_score REAL
                        )
                        ''')
         cursor.execute('''
@@ -37,6 +38,8 @@ class DatabaseHandler:
             USING fts5(content, content='documents', content_rowid='id')
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_file_path ON documents (file_path)')
+        #index the score for faster sorting
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_path_score ON documents (path_score)')
         self.conn.commit()
 
     def get_stored_mtime(self, file_path):
@@ -55,10 +58,10 @@ class DatabaseHandler:
         ext = Path(data['path']).suffix.lower()
         cursor.execute('''
             INSERT OR REPLACE INTO documents 
-            (file_path, file_name, content, preview, meta_json, last_modified, extension, file_size)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (file_path, file_name, content, preview, meta_json, last_modified, extension, file_size, path_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (data['path'], data['name'], data['content'], data['preview'], data['meta'],
-              data['mtime'], ext, data['size']))
+              data['mtime'], ext, data['size'], data.get('path_score', 0.0)))
         row_id = cursor.lastrowid
         cursor.execute("INSERT INTO documents_fts(rowid, content) VALUES(?, ?)", (row_id, data['content']))
 
