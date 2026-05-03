@@ -15,6 +15,35 @@ class FileSystemCrawler:
             ".ps1", ".bat", ".sql", ".md", ".markdown", ".tex", ".rst", ".asciidoc"
         }
 
+    def calculate_path_score(self, file_path):
+        #calculate at index time the cost
+        path_obj = Path(file_path)
+        parts = path_obj.parts
+        #base score
+        score = 100.0
+        flat_increment = 25
+        mult_decrement = .1
+        #the deeper the file the lower the score
+        depth = len(parts)
+        score -= (depth * 5)
+
+        #penalties based on the contents of the file path
+        path_lower = file_path.lower()
+        sep = os.sep
+
+        #for certain directories boost the score
+        high_value_dirs = ['src', 'lib', 'docs', 'documents', 'main', 'app', 'downloads']
+        for d in high_value_dirs:
+            if f"{sep}{d}{sep}" in path_lower or path_lower.endswith(f"{sep}{d}"):
+                score += flat_increment
+        #for other directories cut the score
+        low_value_dirs = ['.git', 'node_modules', 'venv', 'env', '__pycache__', 'build', 'dist', 'out', 'tmp']
+        for d in low_value_dirs:
+            if f"{sep}{d}{sep}" in path_lower:
+                score *= mult_decrement
+        #clamp the score
+        return max(0.0, score)
+
     def crawl(self, root_dir, progress_callback=None, complete_callback=None):
         count = 0
         self.db.conn.execute("BEGIN TRANSACTION")
@@ -28,9 +57,12 @@ class FileSystemCrawler:
 
                     content, preview, size = self.extractor.extract(path)
                     if content:
+                        #calculate the score
+                        path_score = self.calculate_path_score(path)
                         self.db.upsert_document({
                             'path': path, 'name': file, 'content': content,
-                            'preview': preview, 'meta': "{}", 'mtime': mtime, 'size': size
+                            'preview': preview, 'meta': "{}", 'mtime': mtime, 'size': size,
+                            'path_score': path_score
                         })
                         count += 1
                         if count % 500 == 0:
@@ -41,6 +73,7 @@ class FileSystemCrawler:
             self.db.conn.commit()
         except Exception as e:
             self.db.conn.rollback()
+            print(f"EROARE: {e}")
         finally:
             if complete_callback:
                 complete_callback()
