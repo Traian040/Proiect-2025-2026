@@ -65,7 +65,7 @@ class DatabaseHandler:
         row_id = cursor.lastrowid
         cursor.execute("INSERT INTO documents_fts(rowid, content) VALUES(?, ?)", (row_id, data['content']))
 
-    def search(self, criteria, allowed_exts=None, sort_type="alphabetically"):
+    def search(self, criteria, allowed_exts=None, sort_type="relevance"):
         cursor = self.conn.cursor()
         where_clauses = []
         params = []
@@ -113,6 +113,9 @@ class DatabaseHandler:
             sql += " ORDER BY LOWER(d.file_name) ASC"
         elif sort_type == "date":
             sql += " ORDER BY d.last_modified DESC"
+        elif sort_type == "relevance":
+            #score descending by path score, higher values are more relevant
+            sql += " ORDER BY d.path_score DESC, d.last_modified DESC"
 
         try:
             cursor.execute(sql, params)
