@@ -27,6 +27,10 @@ class SearchUI(SearchSubject):
         SearchSubject.__init__(self)
         self.attach(history_manager)
 
+        #save history manager
+        self.history_manager = history_manager
+        self._search_log_timer = None
+
         self.root, self.crawler, self.db = root, crawler, db
         self.root.title("FlashSearch Pro v1.5")
         self.root.geometry("1200x850")
@@ -91,6 +95,14 @@ class SearchUI(SearchSubject):
         self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.search_entry.focus_set()
 
+        #autocomplete
+        self.suggestion_listbox = tk.Listbox(self.root, font=('Segoe UI', 10), height=5)
+        self.suggestion_listbox.place_forget()
+
+        self.search_entry.bind("<KeyRelease>", self.handle_typing)
+        self.search_entry.bind("<FocusOut>", lambda e: self.root.after(100, self.suggestion_listbox.place_forget))
+        self.suggestion_listbox.bind("<<ListboxSelect>>", self.select_suggestion)
+
         self.index_btn = ttk.Button(ctrl_frame, text="Index Folder", command=self.run_crawler)
         self.index_btn.pack(side=tk.RIGHT, padx=(5, 0))
 
@@ -135,6 +147,45 @@ class SearchUI(SearchSubject):
 
         self.results_data = []
         self.update_filter_menu()
+
+    #autocomplete methods
+    def handle_typing(self, event):
+        #ignore arrow keys and other non-character keys
+        if event.keysym in ['Up', 'Down', 'Left', 'Right', 'Return']:
+            return
+
+        current_text = self.query_var.get()
+        if not current_text:
+            self.suggestion_listbox.place_forget()
+            return
+        #get suggestions from history manager
+        suggestions = self.history_manager.get_popular_queries(prefix=current_text, limit=5)
+
+        if suggestions:
+            #clear existing suggestions
+            self.suggestion_listbox.delete(0, tk.END)
+            #add new suggestions
+            for s in suggestions:
+                self.suggestion_listbox.insert(tk.END, s)
+            #place suggestions listbox
+            x = self.search_entry.winfo_rootx() - self.root.winfo_rootx()
+            y = self.search_entry.winfo_rooty() - self.root.winfo_rooty() + self.search_entry.winfo_height()
+            #adjust y position to be below the entry box
+            self.suggestion_listbox.place(x=x, y=y, width=self.search_entry.winfo_width())
+            self.suggestion_listbox.lift()
+        else:
+            self.suggestion_listbox.place_forget()
+
+    def select_suggestion(self, event):
+        if not self.suggestion_listbox.curselection():
+            return
+        selected_text = self.suggestion_listbox.get(self.suggestion_listbox.curselection())
+        #set the query to the selected suggestion
+        self.query_var.set(selected_text)
+        self.suggestion_listbox.place_forget()
+        self.search_entry.focus_set()
+        self.search_entry.icursor(tk.END)
+        #perform search
 
     def format_size(self, size_bytes):
         if not size_bytes: return "0 B"
@@ -216,16 +267,40 @@ class SearchUI(SearchSubject):
         parsed_criteria = query_parser(raw_query) or [{'path': raw_query}]
         allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
 
-        self.notify_search(raw_query, parsed_criteria)
-        #measure latency of the search
+        #remove imediate logging
+        # self.notify_search(raw_query, parsed_criteria)
+
+        #debounce the search logging
+        if self._search_log_timer is not None:
+            self.root.after_cancel(self._search_log_timer)
+
+        #add a 1.5 second delay before logging the search
+        self._search_log_timer = self.root.after(
+            1500,
+            lambda q=raw_query, p=parsed_criteria: self.notify_search(q, p)
+        )
+
+
         db_start = time.perf_counter()
-        self.results_data = self.db.search(
+
+        #perform the search in the database
+        base_results = self.db.search(
             criteria=parsed_criteria,
             allowed_exts=allowed,
             sort_type=self.sort_mode.get()
         )
+
+        #sort the results based on the user's preference(clicks or date)
+        if self.sort_mode.get() == "relevance":
+            base_results.sort(
+                key=lambda x: self.history_manager.click_history.get((raw_query, x[1]), 0),
+                reverse=True
+            )
+
+        self.results_data = base_results
+
         db_end = time.perf_counter()
-        db_latency = (db_end - db_start) * 1000#convert to ms
+        db_latency = (db_end - db_start) * 1000
 
         #measure ui latency
         ui_start = time.perf_counter()

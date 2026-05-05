@@ -42,6 +42,6 @@ class SearchHistoryManager(SearchObserver):
             print(f"[Tracker] Tracked click on: '{file_path}' for query '{query}'")
 
     def get_popular_queries(self, prefix="", limit=5):
-        #return the most popular queries that start with the given prefix
-        matches = [q for q, count in self.query_history.most_common() if q.startswith(prefix)]
+        #return the most popular queries that contain with the given prefix
+        matches = [q for q, count in self.query_history.most_common() if prefix in q]
         return matches[:limit]
