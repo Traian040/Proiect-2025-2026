@@ -5,6 +5,9 @@ import threading
 import re
 import time
 
+from search_history import SearchSubject, SearchHistoryManager
+
+
 def query_parser(query):
     pattern = r'(path|content):(?:"([^"]*)"|([^\s]+))'
 
@@ -19,8 +22,11 @@ def query_parser(query):
     return queries
 
 
-class SearchUI:
-    def __init__(self, root, crawler, db):
+class SearchUI(SearchSubject):
+    def __init__(self, root, crawler, db, history_manager):
+        SearchSubject.__init__(self)
+        self.attach(history_manager)
+
         self.root, self.crawler, self.db = root, crawler, db
         self.root.title("FlashSearch Pro v1.5")
         self.root.geometry("1200x850")
@@ -37,10 +43,10 @@ class SearchUI:
         #re-added the buttons for sorting purposes
 
         self.sort_mode = tk.StringVar(value="relevance")
-        ttk.Radiobutton(ctrl_frame, text="Sort alphabetically", variable=self.sort_mode, value="alphabetically",
-                        command=self.perform_search).pack(side=tk.LEFT, padx=15)
         ttk.Radiobutton(ctrl_frame, text="Sort by Relevance", variable=self.sort_mode, value="relevance",
                         command=self.perform_search).pack(side=tk.LEFT)
+        ttk.Radiobutton(ctrl_frame, text="Sort alphabetically", variable=self.sort_mode, value="alphabetically",
+                        command=self.perform_search).pack(side=tk.LEFT, padx=15)
         ttk.Radiobutton(ctrl_frame, text="Sort by date accessed", variable=self.sort_mode, value="date",
                         command=self.perform_search).pack(side=tk.LEFT)
 
@@ -210,6 +216,7 @@ class SearchUI:
         parsed_criteria = query_parser(raw_query) or [{'path': raw_query}]
         allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
 
+        self.notify_search(raw_query, parsed_criteria)
         #measure latency of the search
         db_start = time.perf_counter()
         self.results_data = self.db.search(
@@ -261,12 +268,13 @@ class SearchUI:
 
         #get the iid of the selected item
         idx = int(selected[0])
-        name, path, mtime, size, full_content = self.results_data[idx]
+        name, path, mtime, size, full_content = self.results_data[idx]  #get the content
 
         #get the search query
         raw_query = self.query_var.get()
         #the user will not get pointed to anything unless the search for content
         clean_query = re.sub(r'(path|content):', '', raw_query).strip().strip('"')
+        self.notify_selection(raw_query, path)
 
         self.content_text.config(state=tk.NORMAL)
         self.content_text.delete(1.0, tk.END)
