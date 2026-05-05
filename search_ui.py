@@ -34,13 +34,15 @@ class SearchUI:
         ctrl_frame = ttk.Frame(main_container)
         ctrl_frame.pack(fill=tk.X, pady=(0, 10))
 
+        #re-added the buttons for sorting purposes
 
-        self.sort_mode = tk.StringVar(value="name")#re-added the buttons for sorting purposes
+        self.sort_mode = tk.StringVar(value="relevance")
         ttk.Radiobutton(ctrl_frame, text="Sort alphabetically", variable=self.sort_mode, value="alphabetically",
+                        command=self.perform_search).pack(side=tk.LEFT, padx=15)
+        ttk.Radiobutton(ctrl_frame, text="Sort by Relevance", variable=self.sort_mode, value="relevance",
                         command=self.perform_search).pack(side=tk.LEFT)
         ttk.Radiobutton(ctrl_frame, text="Sort by date accessed", variable=self.sort_mode, value="date",
-                        command=self.perform_search).pack(side=tk.LEFT, padx=15)
-
+                        command=self.perform_search).pack(side=tk.LEFT)
 
         #reduce number of results displayed at a time
         #default limit is 25, can be changed to 10, 25, 50, 100, or all
@@ -259,7 +261,7 @@ class SearchUI:
 
         #get the iid of the selected item
         idx = int(selected[0])
-        full_content = self.results_data[idx][4]  #get the content
+        name, path, mtime, size, full_content = self.results_data[idx]
 
         #get the search query
         raw_query = self.query_var.get()
