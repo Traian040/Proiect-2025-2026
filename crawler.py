@@ -12,7 +12,8 @@ class FileSystemCrawler:
             ".conf", ".cfg", ".env", ".html", ".htm", ".css", ".js", ".jsx",
             ".ts", ".tsx", ".svg", ".py", ".java", ".c", ".cpp", ".h", ".hpp",
             ".cs", ".rb", ".go", ".rs", ".php", ".swift", ".kt", ".sh", ".bash",
-            ".ps1", ".bat", ".sql", ".md", ".markdown", ".tex", ".rst", ".asciidoc"
+            ".ps1", ".bat", ".sql", ".md", ".markdown", ".tex", ".rst", ".asciidoc",
+            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"  # <-- Added image extensions
         }
 
     def calculate_path_score(self, file_path):
@@ -55,13 +56,13 @@ class FileSystemCrawler:
                     mtime = os.path.getmtime(path)
                     if (stored := self.db.get_stored_mtime(path)) and mtime <= stored: continue
 
-                    content, preview, size = self.extractor.extract(path)
+                    content, preview, size, meta = self.extractor.extract(path)
                     if content:
                         #calculate the score
                         path_score = self.calculate_path_score(path)
                         self.db.upsert_document({
                             'path': path, 'name': file, 'content': content,
-                            'preview': preview, 'meta': "{}", 'mtime': mtime, 'size': size,
+                            'preview': preview, 'meta': meta, 'mtime': mtime, 'size': size,
                             'path_score': path_score
                         })
                         count += 1

@@ -9,7 +9,7 @@ from search_history import SearchSubject, SearchHistoryManager
 
 
 def query_parser(query):
-    pattern = r'(path|content):(?:"([^"]*)"|([^\s]+))'
+    pattern = r'(path|content|color):(?:"([^"]*)"|([^\s]+))'
 
     matches = re.findall(pattern, query)#each match in the query is saved and checking
     queries = []

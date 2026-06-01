@@ -91,6 +91,9 @@ class DatabaseHandler:
                 elif key == 'path':
                     where_clauses.append("d.file_path LIKE ?")
                     params.append(f"%{value}%")
+                elif key == 'color':
+                    where_clauses.append("json_extract(d.meta_json, '$.color') = ?")
+                    params.append(value.lower())
 
         #filter extension
         if allowed_exts:
