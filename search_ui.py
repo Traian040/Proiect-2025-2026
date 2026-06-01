@@ -4,7 +4,7 @@ from datetime import datetime
 import threading
 import re
 import time
-
+from widget_factory import WidgetFactory
 from search_history import SearchSubject, SearchHistoryManager
 
 
@@ -74,6 +74,10 @@ class SearchUI(SearchSubject):
         self.filter_menu = tk.Menu(self.filter_btn, tearoff=False)
         self.filter_btn.config(menu=self.filter_menu)
 
+        #WIDGETS
+        self.widget_factory = WidgetFactory()
+        self.widget_frame = ttk.Frame(main_container)
+        self.widget_frame.pack(fill=tk.X, pady=(0, 5))
         #search bar
         #navigation buttons for the table, takes a lot of time to go display the results
         nav_frame = ttk.Frame(main_container)
@@ -147,6 +151,30 @@ class SearchUI(SearchSubject):
 
         self.results_data = []
         self.update_filter_menu()
+    #WIDGETS def
+    def update_context_widgets(self, results, raw_query):
+        #clear all the widgets
+        for child in self.widget_frame.winfo_children():
+            child.destroy()
+
+        #ask factory which widgets should be displayed
+        widgets = self.widget_factory.get_active_widgets(results, raw_query)
+
+        if widgets:
+            ttk.Label(
+                self.widget_frame,
+                text="Suggested Tools: ",
+                font=('Segoe UI', 9, 'bold')
+            ).pack(side=tk.LEFT, padx=(0, 10))
+
+            #unpack tuples and create buttons
+            for btn_text, btn_command in widgets:
+                ttk.Button(
+                    self.widget_frame,
+                    text=btn_text,
+                    command=btn_command
+                ).pack(side=tk.LEFT, padx=5)
+
 
     #autocomplete methods
     def handle_typing(self, event):
@@ -298,6 +326,8 @@ class SearchUI(SearchSubject):
             )
 
         self.results_data = base_results
+
+        self.update_context_widgets(self.results_data, raw_query)
 
         db_end = time.perf_counter()
         db_latency = (db_end - db_start) * 1000
