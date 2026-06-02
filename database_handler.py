@@ -79,14 +79,10 @@ class DatabaseHandler:
                     continue
 
                 if key == 'content':
-                    #clean and format
-                    words = re.sub(r'[^\w\s]', '', value).split()
-                    fts_query = " AND ".join([f"{w}*" for w in words])
-                    if fts_query:
-                        #multiple matches
-                        where_clauses.append("documents_fts MATCH ?")
-                        params.append(fts_query)
-                        join_fts = True
+                    #removed the hardcoded regex and wildcard logic here
+                    where_clauses.append("documents_fts MATCH ?")
+                    params.append(value)
+                    join_fts = True
 
                 elif key == 'path':
                     where_clauses.append("d.file_path LIKE ?")

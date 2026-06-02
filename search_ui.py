@@ -6,7 +6,7 @@ import re
 import time
 from widget_factory import WidgetFactory
 from search_history import SearchSubject, SearchHistoryManager
-
+from query_decorators import BaseQueryBuilder, SanitizationDecorator, SynonymDecorator, LogicDecorator
 
 def query_parser(query):
     pattern = r'(path|content|color):(?:"([^"]*)"|([^\s]+))'
@@ -287,12 +287,36 @@ class SearchUI(SearchSubject):
         self.page = 0
         raw_query = self.query_var.get()
 
+        #handle empty search bar
         if not raw_query:
-            for item in self.tree.get_children(): self.tree.delete(item)
+            for item in self.tree.get_children():
+                self.tree.delete(item)
             self.status_var.set("Ready")
+            #if the query is empty remove widgets
+            if hasattr(self, 'widget_frame'):
+                for child in self.widget_frame.winfo_children():
+                    child.destroy()
             return
 
         parsed_criteria = query_parser(raw_query) or [{'path': raw_query}]
+
+        #query preprocessor pipeline
+        #assemble wrapper stack: sanitize -> synonyms -> logic
+        query_pipeline = LogicDecorator(
+            SynonymDecorator(
+                SanitizationDecorator(
+                    BaseQueryBuilder()
+                )
+            )
+        )
+
+        #process any content through the pipeline
+        for criterion in parsed_criteria:
+            if 'content' in criterion:
+                original = criterion['content']
+                criterion['content'] = query_pipeline.build(original)
+                print(f"[Pipeline] Translated '{original}' -> '{criterion['content']}'")
+
         allowed = [ext for ext, var in self.filter_vars.items() if var.get()]
 
         #remove imediate logging
@@ -327,7 +351,9 @@ class SearchUI(SearchSubject):
 
         self.results_data = base_results
 
-        self.update_context_widgets(self.results_data, raw_query)
+        #update tools based on results
+        if hasattr(self, 'update_context_widgets'):
+            self.update_context_widgets(self.results_data, raw_query)
 
         db_end = time.perf_counter()
         db_latency = (db_end - db_start) * 1000
